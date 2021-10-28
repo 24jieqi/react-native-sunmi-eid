@@ -1,22 +1,38 @@
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules } from 'react-native';
 
-const LINKING_ERROR =
-  `The package 'react-native-sunmi-eid' doesn't seem to be linked. Make sure: \n\n` +
-  Platform.select({ ios: "- You have run 'pod install'\n", default: '' }) +
-  '- You rebuilt the app after installing the package\n' +
-  '- You are not using Expo managed workflow\n';
+export type ReadyStatus = 'READY' | 'PENDING' | 'DONE' | 'FAILED' | 'SUCCESS';
 
-const SunmiEid = NativeModules.SunmiEid
-  ? NativeModules.SunmiEid
-  : new Proxy(
-      {},
-      {
-        get() {
-          throw new Error(LINKING_ERROR);
-        },
-      }
-    );
-
-export function multiply(a: number, b: number): Promise<number> {
-  return SunmiEid.multiply(a, b);
+interface IConfig {
+  appId: string;
+  appKey: string;
 }
+export interface IEidCardInfo {
+  dn: string;
+  name: string;
+  sex: string;
+  nation: string;
+  birthDate: string;
+  address: string;
+  idnum: string;
+  signingOrganization: string;
+  beginTime: string;
+  endTime: string;
+  picture: string;
+}
+interface SunmiEidType {
+  init: (config: IConfig) => Promise<null>;
+  stopCheckCard: () => void;
+  startCheckCard: (
+    statusChangeCallback: (
+      status: ReadyStatus,
+      code: number,
+      msg: number,
+      info?: IEidCardInfo
+    ) => void,
+    errorCallback: (code: number, msg: string) => void
+  ) => void;
+}
+
+const SunmiEid = NativeModules.SunmiEid as SunmiEidType;
+
+export default SunmiEid;
