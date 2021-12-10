@@ -2,6 +2,8 @@
 
 sunmi eid service for react-native app
 
+商品身份证云识别 react-native 实现
+
 ## Installation
 
 ```sh
@@ -20,30 +22,24 @@ SunmiEid.init({
 }).then(() => {
   ...
 })
-
-SunmiEid.startCheckCard((status, code, msg, info) => {
-  if (status === 'SUCCESS') {
-    // 解析成功
-  }
-  if (status === 'READY') {
-    // 准备完成，可以开始刷卡
-  }
-  if (status === 'PENDING') {
-    // 刷卡中
-  }
-  if (status === 'DONE') {
-    // 刷卡完成，等待解析
-  }
-  if (status === 'FAILED') {
-    // 刷卡/解析失败
-  }
-}, (code, msg) => {
-  // 刷卡/解析过程中各种异常
-})
+// 手动开启读卡
+SunmiEid.startCheckCard()
 // 手动关闭读卡
 SunmiEid.stopCheckCard()
 
+// 监听读卡过程中状态变更
+const removeEvent = SunmiEid.listen(
+  (payload) => {
+    console.log('stateChange', payload.status);
+  },
+  (error) => {
+    console.log('error', error);
+  }
+);
+
 ```
+
+> 更详细的使用方式请查看 example
 
 ## Contributing
 

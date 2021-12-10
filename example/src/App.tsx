@@ -4,19 +4,14 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import SunmiEid from 'react-native-sunmi-eid';
 
 export default function App() {
-  function onStatusChange(status: any, code: any, msg: any, info: any) {
-    console.log(status, code, msg, info);
-  }
-  function onError(code: any, msg: any) {
-    console.log(code, msg);
-  }
   function handleScan() {
-    SunmiEid.startCheckCard(onStatusChange, onError);
+    SunmiEid.startCheckCard();
   }
   React.useEffect(() => {
+    // appId & appKey请从商米伙伴后台获取
     SunmiEid.init({
-      appId: 'cf67b48080b84cf694fb16fabd5098e3',
-      appKey: '8da4d40e24fb4c149905dc74784ac09a',
+      appId: 'xxx',
+      appKey: 'xxx',
     })
       .then(() => {
         console.log('初始化成功！！！！');
@@ -24,6 +19,17 @@ export default function App() {
       .catch((err) => {
         console.log('err12', err);
       });
+    const removeEvent = SunmiEid.listen(
+      (payload) => {
+        console.log('stateChange', payload.status);
+      },
+      (error) => {
+        console.log(error);
+      }
+    );
+    return () => {
+      removeEvent();
+    };
   }, []);
 
   return (

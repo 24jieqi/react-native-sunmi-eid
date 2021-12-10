@@ -2,7 +2,8 @@
   package="com.example.reactnativesunmieid">
 
     <uses-permission android:name="android.permission.INTERNET" />
-
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="com.sunmi.perm.CONTACTLESS_CARD" />
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"

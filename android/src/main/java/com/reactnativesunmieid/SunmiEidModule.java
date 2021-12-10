@@ -4,24 +4,27 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.text.TextUtils;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
 import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.google.gson.Gson;
 import com.reactnativesunmieid.bean.DecodeRequest;
 import com.reactnativesunmieid.bean.Result;
 import com.reactnativesunmieid.bean.ResultInfo;
 import com.reactnativesunmieid.uitls.DesUtils;
 import com.reactnativesunmieid.uitls.SignatureUtils;
+import com.reactnativesunmieid.uitls.Utils;
 import com.sunmi.eidlibrary.EidCall;
 import com.sunmi.eidlibrary.EidConstants;
 import com.sunmi.eidlibrary.EidSDK;
@@ -36,6 +39,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
+import okhttp3.Callback;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
@@ -66,6 +70,9 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
         return NAME;
     }
 
+    private void sendEvent(ReactContext ctx, String eventName, ReadableMap data) {
+      ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit(eventName, data);
+    }
     @ReactMethod
     public void init(ReadableMap config, Promise promise) {
       activity = getCurrentActivity();
@@ -83,34 +90,52 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
     public void stopCheckCard() {
       EidSDK.stopCheckCard(activity);
     }
+
+    private void generatePayload(WritableMap payload, ReadyState state, WritableMap result) {
+      payload.putString("status", state.getStatus());
+      payload.putInt("code", state.getCode());
+      payload.putString("message", state.getMsg());
+      if (result != null){
+        payload.putMap("result", result);
+      }
+    }
+
     @ReactMethod
-    public void startCheckCard(Callback statusChangeCallback, Callback errorCallback) {
-      EidSDK.startCheckCard(activity, (code, s) -> {
-        switch (code) {
-          case EidConstants.READ_CARD_READY:
-            statusChangeCallback.invoke(ReadyState.READY.getStatus(), ReadyState.READY.getCode(), ReadyState.READY.getMsg());
-            break;
-          case EidConstants.READ_CARD_START:
-            statusChangeCallback.invoke(ReadyState.PENDING.getStatus(), ReadyState.PENDING.getCode(), ReadyState.PENDING.getMsg());
-            break;
-          case EidConstants.READ_CARD_SUCCESS:
-            EidSDK.stopCheckCard(activity);
-            statusChangeCallback.invoke(ReadyState.DONE.getStatus(), ReadyState.DONE.getCode(), ReadyState.DONE.getMsg());
-            // 云解析
-            WritableMap result = requestOrigin(s);
-            if (result != null) {
-              statusChangeCallback.invoke(ReadyState.SUCCESS.getStatus(), ReadyState.SUCCESS.getCode(), ReadyState.SUCCESS.getMsg(), result);
-            } else {
-              errorCallback.invoke(ReadyState.PARSE_FAILED.getCode(), ReadyState.PARSE_FAILED.getMsg());
-            }
-            break;
-          case EidConstants.READ_CARD_FAILED:
-            statusChangeCallback.invoke(ReadyState.FAILED.getStatus(), ReadyState.FAILED.getCode(), ReadyState.FAILED.getMsg());
-            break;
-          default:
-            errorCallback.invoke(code, s);
-        }
-      });
+    public void startCheckCard() {
+        EidSDK.startCheckCard(activity, (code, s) -> {
+          WritableMap payload = Arguments.createMap();
+          switch (code) {
+            case EidConstants.READ_CARD_READY:
+              generatePayload(payload, ReadyState.READY, null);
+              sendEvent(context, "onStateChange", payload);
+              break;
+            case EidConstants.READ_CARD_START:
+              generatePayload(payload, ReadyState.PENDING, null);
+              sendEvent(context, "onStateChange", payload);
+              break;
+            case EidConstants.READ_CARD_SUCCESS:
+              EidSDK.stopCheckCard(activity);
+              generatePayload(payload, ReadyState.DONE, null);
+              sendEvent(context, "onStateChange", payload);
+              // 云解析
+              try {
+                requestOrigin(s);
+              } catch (Exception e) {
+                generatePayload(payload, ReadyState.PARSE_FAILED, null);
+                sendEvent(context, "onError", payload);
+              }
+              break;
+            case EidConstants.READ_CARD_FAILED:
+              generatePayload(payload, ReadyState.FAILED, null);
+              sendEvent(context, "onStateChange", payload);
+              break;
+            default:
+              payload.putInt("code", code);
+              payload.putString("message", s);
+              sendEvent(context, "onError", payload);
+              break;
+          }
+        });
     }
     private static String getCharAndNumber() {
       Random random = new Random();
@@ -136,7 +161,7 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
       }
     return valSb.toString();
   }
-    private WritableMap requestOrigin(String reqId) {
+    private void requestOrigin(String reqId) {
 
         String json;
         Gson gson = new Gson();
@@ -147,21 +172,30 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
         RequestBody reqBody = RequestBody.create(MediaType.parse("application/json;charset=utf-8"), json);
         long timeStamp = System.currentTimeMillis()/1000;
         String nonce = getNumber();
-        String tempSign = json + this.appId + timeStamp + nonce;
-        String sign = SignatureUtils.generateHashWithHmac256(tempSign, this.appKey);
+        String tempSign = json + appId + timeStamp + nonce;
+        String sign = SignatureUtils.generateHashWithHmac256(tempSign, appKey);
         Request request = new Request.Builder().url(Constant.OPEN_API_HOST + "/v2/eid/eid/idcard/decode")
           .addHeader("Sunmi-Timestamp", timeStamp+"")
           .addHeader("Sunmi-Sign", sign)
-          .addHeader("Sunmi-Appid", this.appId)
+          .addHeader("Sunmi-Appid", appId)
           .addHeader("Sunmi-Nonce", nonce)
           .post(reqBody)
           .build();
-        try{
-          Response response = client.newCall(request).execute();
+      client.newCall(request).enqueue(new Callback() {
+        @Override
+        public void onFailure(@NonNull Call call, @NonNull IOException e) {
+          WritableMap m = Arguments.createMap();
+          m.putString("msg", e.getMessage());
+          sendEvent(context, "onError", m);
+        }
+
+        @Override
+        public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+
           Result res = new Result();
           JSONObject obj;
           try{
-            obj = new JSONObject(Objects.requireNonNull(response.body()).toString());
+            obj = new JSONObject(response.body().string());
             res.code = obj.getInt("code");
             if (obj.has("msg")) {
               res.msg = obj.getString("msg");
@@ -171,12 +205,9 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
               Result.Data data = new Result.Data();
               data.info = dataJson.getString("info");
               res.data = data;
-            } else {
-              return null;
             }
           } catch (JSONException e) {
             e.printStackTrace();
-            return null;
           }
           byte[] tempData = Base64.decode(res.data.info.getBytes(), Base64.DEFAULT);
           String tempDataStr = null;
@@ -184,7 +215,6 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
             tempDataStr = new String(DesUtils.decode(appKey.substring(0, 8), tempData, reqBean.encrypt_factor));
           } catch (Exception e) {
             e.printStackTrace();
-            return null;
           }
           ResultInfo info = gson.fromJson(tempDataStr, ResultInfo.class);
           WritableMap result = Arguments.createMap();
@@ -200,12 +230,12 @@ public class SunmiEidModule extends ReactContextBaseJavaModule {
           result.putString("endTime", info.info.endTime);
           if (!TextUtils.isEmpty(info.picture)) {
             final Bitmap bit = EidSDK.parseCardPhoto(info.picture);
-            result.putString("picture", bit.toString());
+            result.putString("picture", Utils.bitmapToBase64(bit));
           }
-          return result;
-        } catch (IOException e) {
-          e.printStackTrace();
-          return null;
+          WritableMap m = Arguments.createMap();
+          generatePayload(m, ReadyState.SUCCESS, result);
+          sendEvent(context, "onStateChange", m);
         }
-      }
+      });
+    }
 }
